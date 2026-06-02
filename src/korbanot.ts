@@ -1,7 +1,9 @@
 import { HDate, Location, Zmanim, gematriya, months } from '@hebcal/core';
 
 export type AnimalKey = 'bulls' | 'rams' | 'lambs' | 'goats';
+export type AnimalAgeCategory = 'standard' | 'young' | 'mature' | 'calf' | 'yearling';
 export type KorbanGroup = 'tamid' | 'musaf' | 'special';
+export type KorbanType = 'olah' | 'chatas' | 'shelamim' | 'pesach' | 'azazel';
 
 export interface AnimalCounts {
   bulls: number;
@@ -10,12 +12,36 @@ export interface AnimalCounts {
   goats: number;
 }
 
+export interface NesachimAmounts {
+  solet: string;
+  oil: string;
+  wine: string;
+}
+
+export interface KorbanAnimalLine {
+  animal: AnimalKey;
+  ageCategory: AnimalAgeCategory;
+  korbanType: KorbanType;
+  quantity: number;
+  label?: string;
+  nesachim?: NesachimAmounts | null;
+}
+
 export interface KorbanRow {
   id: string;
   group: KorbanGroup;
   title: string;
   subtitle: string;
+  animals: KorbanAnimalLine[];
   counts: AnimalCounts;
+  notes?: string[];
+}
+
+export interface ExcludedKorbanRow {
+  id: string;
+  title: string;
+  subtitle: string;
+  animals: KorbanAnimalLine[];
   notes?: string[];
 }
 
@@ -30,6 +56,7 @@ export interface KorbanDay {
   weekdayName: string;
   gregorianLabel: string;
   rows: KorbanRow[];
+  excludedRows: ExcludedKorbanRow[];
   notes: string[];
   sources: SourceLink[];
   totals: AnimalCounts;
@@ -43,11 +70,63 @@ export const ANIMAL_LABELS: Record<AnimalKey, string> = {
   goats: 'שעירים',
 };
 
+export const ANIMAL_TILE_LABELS: Record<AnimalKey, string> = {
+  bulls: 'פר',
+  rams: 'איל',
+  lambs: 'כבש',
+  goats: 'שעיר',
+};
+
+export const ANIMAL_AGE_LABELS: Record<AnimalAgeCategory, string> = {
+  standard: '',
+  young: 'בן בקר',
+  mature: 'בוגר',
+  calf: 'עגל',
+  yearling: 'בן שנה',
+};
+
+export const KORBAN_TYPE_LABELS: Record<KorbanType, string> = {
+  olah: 'עולה',
+  chatas: 'חטאת',
+  shelamim: 'שלמים',
+  pesach: 'פסח',
+  azazel: 'משתלח',
+};
+
 export const EMPTY_COUNTS: AnimalCounts = {
   bulls: 0,
   rams: 0,
   lambs: 0,
   goats: 0,
+};
+
+export const STANDARD_NESACHIM: Record<AnimalKey, NesachimAmounts> = {
+  bulls: {
+    solet: '3 עשרונים',
+    oil: '1/2 הין',
+    wine: '1/2 הין',
+  },
+  rams: {
+    solet: '2 עשרונים',
+    oil: '1/3 הין',
+    wine: '1/3 הין',
+  },
+  lambs: {
+    solet: 'עשרון',
+    oil: '1/4 הין',
+    wine: '1/4 הין',
+  },
+  goats: {
+    solet: 'עשרון',
+    oil: '1/4 הין',
+    wine: '1/4 הין',
+  },
+};
+
+export const OMER_LAMB_NESACHIM: NesachimAmounts = {
+  solet: '2 עשרונים',
+  oil: '1/3 הין',
+  wine: '1/4 הין',
 };
 
 export const SOURCE_LINKS: SourceLink[] = [
@@ -100,6 +179,8 @@ const GREGORIAN_MONTHS_HE = [
   'דצמבר',
 ] as const;
 
+type KorbanRowInput = Omit<KorbanRow, 'counts'>;
+
 export function getJerusalemHebrewDate(now = new Date()): HDate {
   return Zmanim.makeSunsetAwareHDate(JERUSALEM, now, false);
 }
@@ -112,14 +193,15 @@ export function calculateKorbanot(hdate: HDate): KorbanDay {
       group: 'tamid',
       title: 'תמידין',
       subtitle: 'תמיד של שחר ותמיד של בין הערבים',
-      counts: { ...EMPTY_COUNTS, lambs: 2 },
-      notes: ['המנחות והנסכים של התמידין אינם בכלל המנין.'],
+      animals: [olah('lambs', 2, 'yearling')],
+      notes: ['הנסכים מוצגים לכל כבש, ואינם מוסיפים למנין הבהמות.'],
     }),
   ];
+  const excludedRows: ExcludedKorbanRow[] = [];
 
   const notes: string[] = [
     'המנין כולל קרבנות ציבור קבועים מן הבהמה בלבד.',
-    'מנחות, נסכים, קטורת, לחם הפנים וקרבנות יחיד אינם נכנסים בחשבון.',
+    'מנחות, נסכים, קטורת, לחם הפנים וקרבנות יחיד אינם נכנסים בחשבון הבהמות.',
   ];
 
   const month = date.getMonth();
@@ -133,7 +215,7 @@ export function calculateKorbanot(hdate: HDate): KorbanDay {
         group: 'musaf',
         title: 'מוסף שבת',
         subtitle: 'שני כבשים בני שנה',
-        counts: { ...EMPTY_COUNTS, lambs: 2 },
+        animals: [olah('lambs', 2, 'yearling')],
         notes: ['לחם הפנים אינו בכלל מנין הקרבנות.'],
       }),
     );
@@ -145,8 +227,8 @@ export function calculateKorbanot(hdate: HDate): KorbanDay {
         id: 'rosh-chodesh-musaf',
         group: 'musaf',
         title: 'מוסף ראש חודש',
-        subtitle: 'שני פרים, איל אחד, שבעה כבשים ושעיר אחד',
-        counts: { bulls: 2, rams: 1, lambs: 7, goats: 1 },
+        subtitle: 'שני פרים בני בקר, איל אחד, שבעה כבשים ושעיר אחד',
+        animals: musafAnimals({ bulls: 2, rams: 1, lambs: 7 }),
       }),
     );
   }
@@ -157,11 +239,11 @@ export function calculateKorbanot(hdate: HDate): KorbanDay {
         id: 'pesach-musaf',
         group: 'musaf',
         title: 'מוסף פסח',
-        subtitle: 'שני פרים, איל אחד, שבעה כבשים ושעיר אחד',
-        counts: { bulls: 2, rams: 1, lambs: 7, goats: 1 },
+        subtitle: 'שני פרים בני בקר, איל אחד, שבעה כבשים ושעיר אחד',
+        animals: musafAnimals({ bulls: 2, rams: 1, lambs: 7 }),
       }),
     );
-    notes.push('קרבן פסח אינו נכנס לחשבון, כי מנינו תלוי בכל חבורה וחבורה.');
+    notes.push('קרבן פסח אינו במוספי החג, ומנינו תלוי בכל חבורה וחבורה.');
   }
 
   if (month === months.NISAN && day === 16) {
@@ -171,13 +253,24 @@ export function calculateKorbanot(hdate: HDate): KorbanDay {
         group: 'special',
         title: 'קרבן העומר',
         subtitle: 'כבש אחד לעולה',
-        counts: { ...EMPTY_COUNTS, lambs: 1 },
-        notes: ['מנחת העומר אינה בכלל מנין הבהמות.'],
+        animals: [olah('lambs', 1, 'yearling', { nesachim: OMER_LAMB_NESACHIM })],
+        notes: ['מנחת העומר עצמה אינה בכלל מנין הבהמות.'],
       }),
     );
   }
 
   if (month === months.NISAN && day === 14) {
+    excludedRows.push({
+      id: 'korban-pesach',
+      title: 'קרבן פסח',
+      subtitle: 'כבש או גדי לכל חבורה - משתנה לפי המקריבים',
+      animals: [
+        line('lambs', 'pesach', 1, 'yearling', {
+          label: 'כבש או גדי',
+          nesachim: null,
+        }),
+      ],
+    });
     notes.push('בי״ד בניסן קרבן פסח אינו בכלל המנין, כי מספרו תלוי במקריבים.');
   }
 
@@ -187,15 +280,20 @@ export function calculateKorbanot(hdate: HDate): KorbanDay {
         id: 'shavuot-musaf',
         group: 'musaf',
         title: 'מוסף עצרת',
-        subtitle: 'שני פרים, איל אחד, שבעה כבשים ושעיר אחד',
-        counts: { bulls: 2, rams: 1, lambs: 7, goats: 1 },
+        subtitle: 'שני פרים בני בקר, איל אחד, שבעה כבשים ושעיר אחד',
+        animals: musafAnimals({ bulls: 2, rams: 1, lambs: 7 }),
       }),
       createRow({
         id: 'shtei-halechem',
         group: 'special',
         title: 'הבאים עם שתי הלחם',
-        subtitle: 'פר, שני אילים, שבעה כבשים ושעיר',
-        counts: { bulls: 1, rams: 2, lambs: 7, goats: 1 },
+        subtitle: 'פר בן בקר, שני אילים, שבעה כבשים ושעיר',
+        animals: [
+          olah('bulls', 1, 'young'),
+          olah('rams', 2),
+          olah('lambs', 7, 'yearling'),
+          chatas('goats', 1),
+        ],
         notes: ['אלו באים עם שתי הלחם מלבד מוספי היום, ואינם כפילות.'],
       }),
       createRow({
@@ -203,7 +301,7 @@ export function calculateKorbanot(hdate: HDate): KorbanDay {
         group: 'special',
         title: 'כבשי שלמי ציבור',
         subtitle: 'שני כבשים שלמים',
-        counts: { ...EMPTY_COUNTS, lambs: 2 },
+        animals: [shelamim('lambs', 2, 'yearling')],
       }),
     );
   }
@@ -214,8 +312,8 @@ export function calculateKorbanot(hdate: HDate): KorbanDay {
         id: 'rosh-hashanah-musaf',
         group: 'musaf',
         title: 'מוסף ראש השנה',
-        subtitle: 'פר אחד, איל אחד, שבעה כבשים ושעיר אחד',
-        counts: { bulls: 1, rams: 1, lambs: 7, goats: 1 },
+        subtitle: 'פר בן בקר, איל אחד, שבעה כבשים ושעיר אחד',
+        animals: musafAnimals({ bulls: 1, rams: 1, lambs: 7 }),
       }),
     );
   }
@@ -226,18 +324,29 @@ export function calculateKorbanot(hdate: HDate): KorbanDay {
         id: 'yom-kippur-musaf',
         group: 'musaf',
         title: 'מוסף יום הכיפורים',
-        subtitle: 'פר אחד, איל אחד, שבעה כבשים ושעיר אחד',
-        counts: { bulls: 1, rams: 1, lambs: 7, goats: 1 },
+        subtitle: 'פר בן בקר, איל אחד, שבעה כבשים ושעיר אחד',
+        animals: musafAnimals({ bulls: 1, rams: 1, lambs: 7 }),
       }),
       createRow({
         id: 'yom-kippur-avodah',
         group: 'special',
         title: 'עבודת יום הכיפורים',
-        subtitle: 'שעיר חטאת נוסף, פר כהן גדול ואיל לעולה',
-        counts: { bulls: 1, rams: 1, lambs: 0, goats: 1 },
-        notes: ['שעיר המשתלח נזכר כהערה ואינו בכלל הקרב על המזבח.'],
+        subtitle: 'פר כהן גדול לחטאת, אילו לעולה, ושעיר לה׳ לחטאת',
+        animals: [chatas('bulls', 1, 'young'), olah('rams', 1), chatas('goats', 1)],
+        notes: ['שעיר המשתלח נזכר למטה ואינו בכלל הקרב על המזבח.'],
       }),
     );
+    excludedRows.push({
+      id: 'yom-kippur-azazel',
+      title: 'שעיר המשתלח',
+      subtitle: 'נשלח לעזאזל ואינו קרב על המזבח',
+      animals: [
+        line('goats', 'azazel', 1, 'standard', {
+          label: 'שעיר לעזאזל',
+          nesachim: null,
+        }),
+      ],
+    });
     notes.push('שעיר המשתלח אינו בכלל המנין, מפני שאינו קרב על המזבח.');
   }
 
@@ -248,8 +357,8 @@ export function calculateKorbanot(hdate: HDate): KorbanDay {
         id: `sukkot-${day}`,
         group: 'musaf',
         title: `מוסף חג הסוכות - יום ${formatHebrewNumber(day - 14)}`,
-        subtitle: `${formatCount(bulls, 'פר', 'פרים')}, שני אילים, ארבעה עשר כבשים ושעיר אחד`,
-        counts: { bulls, rams: 2, lambs: 14, goats: 1 },
+        subtitle: `${formatCount(bulls, 'פר בן בקר', 'פרים בני בקר')}, שני אילים, ארבעה עשר כבשים ושעיר אחד`,
+        animals: musafAnimals({ bulls, rams: 2, lambs: 14 }),
       }),
     );
   }
@@ -261,7 +370,7 @@ export function calculateKorbanot(hdate: HDate): KorbanDay {
         group: 'musaf',
         title: 'מוסף שמיני עצרת',
         subtitle: 'פר אחד, איל אחד, שבעה כבשים ושעיר אחד',
-        counts: { bulls: 1, rams: 1, lambs: 7, goats: 1 },
+        animals: musafAnimals({ bulls: 1, rams: 1, lambs: 7, bullAge: 'mature' }),
       }),
     );
   }
@@ -274,6 +383,7 @@ export function calculateKorbanot(hdate: HDate): KorbanDay {
     weekdayName: WEEKDAYS_HE[dayOfWeek],
     gregorianLabel: formatGregorianDate(date.greg()),
     rows,
+    excludedRows,
     notes,
     sources: SOURCE_LINKS,
     totals,
@@ -367,12 +477,89 @@ export function formatHebrewNumber(value: number): string {
   return gematriya(value).replace(/^טו$/, 'ט״ו').replace(/^טז$/, 'ט״ז');
 }
 
-export function rowTotal(row: KorbanRow): number {
-  return totalAnimals(row.counts);
+export function resolveNesachim(animal: KorbanAnimalLine): NesachimAmounts | null {
+  if (animal.nesachim !== undefined) {
+    return animal.nesachim;
+  }
+
+  if (animal.korbanType !== 'olah' && animal.korbanType !== 'shelamim') {
+    return null;
+  }
+
+  return STANDARD_NESACHIM[animal.animal];
 }
 
-function createRow(row: KorbanRow): KorbanRow {
-  return row;
+export function rowTotal(row: KorbanRow): number {
+  return row.animals.reduce((sum, animal) => sum + animal.quantity, 0);
+}
+
+function createRow(row: KorbanRowInput): KorbanRow {
+  return {
+    ...row,
+    counts: animalCountsFromLines(row.animals),
+  };
+}
+
+function olah(
+  animal: AnimalKey,
+  quantity: number,
+  ageCategory: AnimalAgeCategory = 'standard',
+  options: Partial<Pick<KorbanAnimalLine, 'label' | 'nesachim'>> = {},
+): KorbanAnimalLine {
+  return line(animal, 'olah', quantity, ageCategory, options);
+}
+
+function chatas(
+  animal: AnimalKey,
+  quantity: number,
+  ageCategory: AnimalAgeCategory = 'standard',
+  options: Partial<Pick<KorbanAnimalLine, 'label' | 'nesachim'>> = {},
+): KorbanAnimalLine {
+  return line(animal, 'chatas', quantity, ageCategory, { nesachim: null, ...options });
+}
+
+function shelamim(
+  animal: AnimalKey,
+  quantity: number,
+  ageCategory: AnimalAgeCategory = 'standard',
+  options: Partial<Pick<KorbanAnimalLine, 'label' | 'nesachim'>> = {},
+): KorbanAnimalLine {
+  return line(animal, 'shelamim', quantity, ageCategory, options);
+}
+
+function line(
+  animal: AnimalKey,
+  korbanType: KorbanType,
+  quantity: number,
+  ageCategory: AnimalAgeCategory,
+  options: Partial<Pick<KorbanAnimalLine, 'label' | 'nesachim'>> = {},
+): KorbanAnimalLine {
+  return {
+    animal,
+    ageCategory,
+    korbanType,
+    quantity,
+    ...options,
+  };
+}
+
+function musafAnimals({
+  bulls,
+  rams,
+  lambs,
+  bullAge = 'young',
+}: {
+  bulls: number;
+  rams: number;
+  lambs: number;
+  bullAge?: AnimalAgeCategory;
+}): KorbanAnimalLine[] {
+  return [
+    olah('bulls', bulls, bullAge),
+    olah('rams', rams),
+    olah('lambs', lambs, 'yearling'),
+    chatas('goats', 1),
+  ].filter((animal) => animal.quantity > 0);
 }
 
 function isRoshChodesh(date: HDate): boolean {
@@ -394,6 +581,16 @@ function sumRows(rows: KorbanRow[]): AnimalCounts {
       rams: totals.rams + row.counts.rams,
       lambs: totals.lambs + row.counts.lambs,
       goats: totals.goats + row.counts.goats,
+    }),
+    { ...EMPTY_COUNTS },
+  );
+}
+
+function animalCountsFromLines(animals: KorbanAnimalLine[]): AnimalCounts {
+  return animals.reduce<AnimalCounts>(
+    (counts, animal) => ({
+      ...counts,
+      [animal.animal]: counts[animal.animal] + animal.quantity,
     }),
     { ...EMPTY_COUNTS },
   );

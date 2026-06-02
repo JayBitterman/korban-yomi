@@ -1,6 +1,9 @@
 import { HDate, months } from '@hebcal/core';
 import { describe, expect, it } from 'vitest';
-import { calculateKorbanot } from './korbanot';
+import { calculateKorbanot, resolveNesachim, type KorbanAnimalLine } from './korbanot';
+
+type KorbanDayView = ReturnType<typeof calculateKorbanot>;
+type KorbanRowView = KorbanDayView['rows'][number];
 
 describe('calculateKorbanot', () => {
   it('counts a regular weekday', () => {
@@ -16,13 +19,17 @@ describe('calculateKorbanot', () => {
   });
 
   it('counts Rosh Chodesh on a weekday', () => {
-    const date = findDate((hdate) => hdate.getDate() === 1 && hdate.getMonth() !== months.TISHREI && hdate.getDay() !== 6);
+    const date = findDate(
+      (hdate) => hdate.getDate() === 1 && hdate.getMonth() !== months.TISHREI && hdate.getDay() !== 6,
+    );
 
     expect(calculateKorbanot(date).total).toBe(13);
   });
 
   it('counts Rosh Chodesh on Shabbat', () => {
-    const date = findDate((hdate) => hdate.getDate() === 1 && hdate.getMonth() !== months.TISHREI && hdate.getDay() === 6);
+    const date = findDate(
+      (hdate) => hdate.getDate() === 1 && hdate.getMonth() !== months.TISHREI && hdate.getDay() === 6,
+    );
 
     expect(calculateKorbanot(date).total).toBe(15);
   });
@@ -75,14 +82,124 @@ describe('calculateKorbanot', () => {
     expect(calculateKorbanot(seventhDay).total).toBe(26);
   });
 
-  it('counts Shemini Atzeret', () => {
+  it('counts Shemini Atzeret and treats its bull as par stam', () => {
     const date = findDate(
       (hdate) => hdate.getMonth() === months.TISHREI && hdate.getDate() === 22 && hdate.getDay() !== 6,
     );
+    const day = calculateKorbanot(date);
+    const bull = findAnimal(findRow(day, 'shemini-atzeret'), (animal) => animal.animal === 'bulls');
 
-    expect(calculateKorbanot(date).total).toBe(12);
+    expect(day.total).toBe(12);
+    expect(bull.ageCategory).toBe('mature');
+  });
+
+  it('uses standard nesachim by animal type for olah and shelamim', () => {
+    const date = findDate(
+      (hdate) => hdate.getDate() === 1 && hdate.getMonth() !== months.TISHREI && hdate.getDay() !== 6,
+    );
+    const roshChodesh = findRow(calculateKorbanot(date), 'rosh-chodesh-musaf');
+
+    expect(resolveNesachim(findAnimal(roshChodesh, (animal) => animal.animal === 'bulls'))).toEqual({
+      solet: '3 עשרונים',
+      oil: '1/2 הין',
+      wine: '1/2 הין',
+    });
+    expect(resolveNesachim(findAnimal(roshChodesh, (animal) => animal.animal === 'rams'))).toEqual({
+      solet: '2 עשרונים',
+      oil: '1/3 הין',
+      wine: '1/3 הין',
+    });
+    expect(resolveNesachim(findAnimal(roshChodesh, (animal) => animal.animal === 'lambs'))).toEqual({
+      solet: 'עשרון',
+      oil: '1/4 הין',
+      wine: '1/4 הין',
+    });
+    expect(
+      resolveNesachim({
+        animal: 'goats',
+        ageCategory: 'standard',
+        korbanType: 'shelamim',
+        quantity: 1,
+      }),
+    ).toEqual({
+      solet: 'עשרון',
+      oil: '1/4 הין',
+      wine: '1/4 הין',
+    });
+  });
+
+  it('uses the explicit Omer nesachim override', () => {
+    const date = findDate(
+      (hdate) => hdate.getMonth() === months.NISAN && hdate.getDate() === 16 && hdate.getDay() !== 6,
+    );
+    const omer = findAnimal(findRow(calculateKorbanot(date), 'omer'), (animal) => animal.animal === 'lambs');
+
+    expect(resolveNesachim(omer)).toEqual({
+      solet: '2 עשרונים',
+      oil: '1/3 הין',
+      wine: '1/4 הין',
+    });
+  });
+
+  it('does not resolve nesachim for current-scope chataot', () => {
+    const date = findDate(
+      (hdate) => hdate.getDate() === 1 && hdate.getMonth() !== months.TISHREI && hdate.getDay() !== 6,
+    );
+    const chataot = calculateKorbanot(date).rows.flatMap((row) =>
+      row.animals.filter((animal) => animal.korbanType === 'chatas'),
+    );
+
+    expect(chataot.length).toBeGreaterThan(0);
+    expect(chataot.map(resolveNesachim)).toEqual(chataot.map(() => null));
+  });
+
+  it('shows Korban Pesach as excluded on 14 Nisan without changing totals', () => {
+    const date = findDate(
+      (hdate) => hdate.getMonth() === months.NISAN && hdate.getDate() === 14 && hdate.getDay() !== 6,
+    );
+    const day = calculateKorbanot(date);
+
+    expect(day.total).toBe(2);
+    expect(day.excludedRows).toHaveLength(1);
+    expect(day.excludedRows[0].id).toBe('korban-pesach');
+    expect(day.excludedRows[0].animals[0].korbanType).toBe('pesach');
+  });
+
+  it('shows the Yom Kippur Azazel goat as excluded while total remains fixed', () => {
+    const date = findDate(
+      (hdate) => hdate.getMonth() === months.TISHREI && hdate.getDate() === 10 && hdate.getDay() !== 6,
+    );
+    const day = calculateKorbanot(date);
+
+    expect(day.total).toBe(15);
+    expect(day.excludedRows).toHaveLength(1);
+    expect(day.excludedRows[0].id).toBe('yom-kippur-azazel');
+    expect(day.excludedRows[0].animals[0].korbanType).toBe('azazel');
   });
 });
+
+function findRow(day: KorbanDayView, id: string): KorbanRowView {
+  const row = day.rows.find((candidate) => candidate.id === id);
+
+  if (!row) {
+    throw new Error(`Missing row ${id}`);
+  }
+
+  return row;
+}
+
+function findAnimal(
+  row: KorbanRowView,
+  predicate: (animal: KorbanAnimalLine) => boolean,
+): KorbanAnimalLine {
+  const animal = row.animals.find(predicate);
+
+  if (!animal) {
+    throw new Error(`Missing animal in row ${row.id}`);
+  }
+
+  return animal;
+}
 
 function findDate(predicate: (hdate: HDate) => boolean): HDate {
   for (let year = 5780; year <= 5820; year += 1) {

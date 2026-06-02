@@ -1,8 +1,12 @@
 import './styles.css';
 import { HDate } from '@hebcal/core';
 import {
-  ANIMAL_LABELS,
+  ANIMAL_AGE_LABELS,
+  ANIMAL_TILE_LABELS,
+  KORBAN_TYPE_LABELS,
+  type AnimalAgeCategory,
   type AnimalKey,
+  type KorbanAnimalLine,
   type KorbanGroup,
   calculateKorbanot,
   clampHebrewDay,
@@ -11,6 +15,8 @@ import {
   getHebrewMonthName,
   getHebrewMonthsForYear,
   getJerusalemHebrewDate,
+  resolveNesachim,
+  rowTotal,
   shiftHebrewDate,
 } from './korbanot';
 
@@ -22,11 +28,21 @@ if (!appRoot) {
 
 const app: HTMLDivElement = appRoot;
 
+type KorbanDayView = ReturnType<typeof calculateKorbanot>;
+type KorbanRowView = KorbanDayView['rows'][number];
+type ExcludedKorbanRowView = KorbanDayView['excludedRows'][number];
+
 const ANIMAL_IMAGE_FILES: Record<AnimalKey, string> = {
   bulls: 'bull.png',
   rams: 'ram.png',
   lambs: 'lamb.png',
   goats: 'goat.png',
+};
+
+const CATTLE_AGE_IMAGE_FILES: Partial<Record<AnimalAgeCategory, string>> = {
+  young: 'young-bull.png',
+  mature: 'bull.png',
+  calf: 'calf.png',
 };
 
 const GROUPS: Array<{ group: KorbanGroup; title: string }> = [
@@ -84,7 +100,16 @@ function render(): void {
     rows: day.rows.filter((row) => row.group === group),
   })).filter(({ rows }) => rows.length > 0);
   const totalRows = visibleGroups.reduce((sum, group) => sum + group.rows.length, 0);
-  const densestGroupRows = Math.max(...visibleGroups.map((group) => group.rows.length));
+  const excludedTileCount = day.excludedRows.reduce(
+    (sum, row) => sum + row.animals.reduce((rowSum, animal) => rowSum + animal.quantity, 0),
+    0,
+  );
+  const totalTileCount = day.total + excludedTileCount;
+  const densestRowTiles = Math.max(
+    1,
+    ...day.rows.map(rowTotal),
+    ...day.excludedRows.map((row) => row.animals.reduce((sum, animal) => sum + animal.quantity, 0)),
+  );
 
   app.innerHTML = `
     <main class="site-shell">
@@ -131,9 +156,11 @@ function render(): void {
         </div>
       </header>
 
-      <section class="learning-board" data-groups="${visibleGroups.length}" data-density="${boardDensity(totalRows, densestGroupRows)}">
+      <section class="learning-board" data-groups="${visibleGroups.length}" data-density="${boardDensity(totalTileCount, densestRowTiles, totalRows)}">
         ${visibleGroups.map(renderGroup).join('')}
       </section>
+
+      ${day.excludedRows.length > 0 ? renderExcludedBoard(day.excludedRows) : ''}
     </main>
   `;
 
@@ -151,16 +178,9 @@ function render(): void {
     `;
   }
 
-  app.querySelectorAll<HTMLImageElement>('img[data-fallback]').forEach((image) => {
-    image.addEventListener('error', () => {
-      image.closest('.image-frame')?.classList.add('is-missing');
-      image.remove();
-    });
-  });
-
   app.querySelectorAll<HTMLImageElement>('img[data-animal-image]').forEach((image) => {
     image.addEventListener('error', () => {
-      image.closest('.animal-icon')?.classList.add('is-missing');
+      image.closest('.animal-art')?.classList.add('is-missing');
       image.remove();
     });
   });
@@ -196,42 +216,148 @@ function render(): void {
   });
 }
 
-function renderRow(row: ReturnType<typeof calculateKorbanot>['rows'][number], hideTitle = false): string {
+function renderRow(row: KorbanRowView, hideTitle = false): string {
   return `
     <article class="korban-line">
       <h3 class="${hideTitle ? 'visually-hidden' : ''}">${row.title}</h3>
-      <div class="animal-counts">
-        ${animalPills(row.counts)}
+      <div class="animal-grid">
+        ${animalTiles(row.animals)}
       </div>
     </article>
   `;
 }
 
-function animalPills(counts: Record<AnimalKey, number>): string {
-  const pills = (Object.keys(ANIMAL_LABELS) as AnimalKey[])
-    .filter((key) => counts[key] > 0)
-    .map(
-      (key) => `
-        <span class="animal-count" aria-label="${ANIMAL_LABELS[key]} ${formatNumber(counts[key])}">
-          ${animalIcon(key)}
-          <span class="count-number">×${formatNumber(counts[key])}</span>
-        </span>
-      `,
-    );
-
-  return pills.length > 0 ? pills.join('') : '<span class="empty-state">אין</span>';
+function renderExcludedBoard(rows: ExcludedKorbanRowView[]): string {
+  return `
+    <section class="excluded-board" aria-labelledby="excluded-title">
+      <h2 id="excluded-title">נזכר ואינו במנין</h2>
+      <div class="excluded-lines">
+        ${rows.map(renderExcludedRow).join('')}
+      </div>
+    </section>
+  `;
 }
 
-function animalIcon(key: AnimalKey): string {
-  const label = ANIMAL_LABELS[key];
-  const fileName = ANIMAL_IMAGE_FILES[key];
+function renderExcludedRow(row: ExcludedKorbanRowView): string {
+  return `
+    <article class="excluded-line">
+      <div>
+        <h3>${row.title}</h3>
+        <p class="excluded-subtitle">${row.subtitle}</p>
+      </div>
+      <div class="animal-grid animal-grid-excluded">
+        ${animalTiles(row.animals, { excluded: true })}
+      </div>
+    </article>
+  `;
+}
+
+function animalTiles(animals: KorbanAnimalLine[], options: { excluded?: boolean } = {}): string {
+  const tiles = animals.flatMap((animal) =>
+    Array.from({ length: animal.quantity }, () => renderAnimalTile(animal, options)),
+  );
+
+  return tiles.length > 0 ? tiles.join('') : '<span class="empty-state">אין</span>';
+}
+
+function renderAnimalTile(animal: KorbanAnimalLine, { excluded = false }: { excluded?: boolean } = {}): string {
+  const ageLabel = ANIMAL_AGE_LABELS[animal.ageCategory];
+  const korbanType = KORBAN_TYPE_LABELS[animal.korbanType];
 
   return `
-    <span class="animal-icon">
+    <article class="animal-tile ${excluded ? 'is-excluded' : ''}" data-korban-type="${animal.korbanType}" aria-label="${animalAriaLabel(animal, excluded)}">
+      ${animalIcon(animal)}
+      <div class="animal-copy">
+        <span class="korban-type">${korbanType}</span>
+        <span class="animal-name">${animalDisplayName(animal)}</span>
+        ${ageLabel ? `<span class="animal-age">${ageLabel}</span>` : ''}
+        ${excluded ? '<span class="excluded-chip">לא במנין</span>' : ''}
+      </div>
+      ${excluded ? '' : renderNesachim(animal)}
+    </article>
+  `;
+}
+
+function renderNesachim(animal: KorbanAnimalLine): string {
+  const nesachim = resolveNesachim(animal);
+
+  if (!nesachim) {
+    return '';
+  }
+
+  return `
+    <div class="nesachim" aria-label="נסכים">
+      <span class="nesach-row">${nesachIcon('wine')}<span>יין ${nesachim.wine}</span></span>
+      <span class="nesach-row">${nesachIcon('oil')}<span>שמן ${nesachim.oil}</span></span>
+      <span class="nesach-row">${nesachIcon('solet')}<span>סולת ${nesachim.solet}</span></span>
+    </div>
+  `;
+}
+
+function animalIcon(animal: KorbanAnimalLine): string {
+  const label = animalDisplayName(animal);
+  const fileName = animalImageFile(animal);
+
+  return `
+    <span class="animal-art">
       <img data-animal-image src="${publicAsset(`images/${fileName}`)}" alt="${label}" />
       <span class="animal-letter" aria-hidden="true">${label.slice(0, 1)}</span>
     </span>
   `;
+}
+
+function nesachIcon(type: 'wine' | 'oil' | 'solet'): string {
+  if (type === 'wine') {
+    return `
+      <svg class="nesach-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M8 3h8l-1 8a3 3 0 0 1-6 0L8 3Z" />
+        <path d="M12 14v5" />
+        <path d="M9 21h6" />
+      </svg>
+    `;
+  }
+
+  if (type === 'oil') {
+    return `
+      <svg class="nesach-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 3c3 4 5 7 5 10a5 5 0 0 1-10 0c0-3 2-6 5-10Z" />
+      </svg>
+    `;
+  }
+
+  return `
+    <svg class="nesach-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M5 17c3 3 11 3 14 0" />
+      <path d="M7 17l2-8" />
+      <path d="M12 17V6" />
+      <path d="M17 17l-2-8" />
+      <path d="M8 10c2 1 6 1 8 0" />
+    </svg>
+  `;
+}
+
+function animalImageFile(animal: KorbanAnimalLine): string {
+  if (animal.animal === 'bulls') {
+    return CATTLE_AGE_IMAGE_FILES[animal.ageCategory] ?? ANIMAL_IMAGE_FILES.bulls;
+  }
+
+  return ANIMAL_IMAGE_FILES[animal.animal];
+}
+
+function animalDisplayName(animal: KorbanAnimalLine): string {
+  return animal.label ?? ANIMAL_TILE_LABELS[animal.animal];
+}
+
+function animalAriaLabel(animal: KorbanAnimalLine, excluded: boolean): string {
+  const nesachim = resolveNesachim(animal);
+  const ageLabel = ANIMAL_AGE_LABELS[animal.ageCategory];
+  const agePart = ageLabel ? ` ${ageLabel}` : '';
+  const nesachimPart = nesachim
+    ? `, יין ${nesachim.wine}, שמן ${nesachim.oil}, סולת ${nesachim.solet}`
+    : '';
+  const excludedPart = excluded ? ', לא במנין' : '';
+
+  return `${animalDisplayName(animal)}${agePart}, ${KORBAN_TYPE_LABELS[animal.korbanType]}${nesachimPart}${excludedPart}`;
 }
 
 function readSelect(field: 'day' | 'month' | 'year'): number {
@@ -252,10 +378,7 @@ function publicAsset(path: string): string {
   return `${import.meta.env.BASE_URL}${path}`;
 }
 
-function groupTitle(
-  group: KorbanGroup,
-  rows: ReturnType<typeof calculateKorbanot>['rows'],
-): string | null {
+function groupTitle(group: KorbanGroup, rows: KorbanRowView[]): string | null {
   if (group !== 'musaf' || rows.length === 0) {
     return null;
   }
@@ -263,12 +386,12 @@ function groupTitle(
   return rows.map((row) => row.title).join(' / ');
 }
 
-function boardDensity(totalRows: number, densestGroupRows: number): 'roomy' | 'normal' | 'busy' | 'packed' {
-  if (totalRows >= 5 || densestGroupRows >= 3) {
+function boardDensity(totalTiles: number, densestRowTiles: number, totalRows: number): 'roomy' | 'normal' | 'busy' | 'packed' {
+  if (totalTiles >= 28 || densestRowTiles >= 18 || totalRows >= 5) {
     return 'packed';
   }
 
-  if (totalRows >= 4 || densestGroupRows >= 2) {
+  if (totalTiles >= 14 || densestRowTiles >= 10 || totalRows >= 4) {
     return 'busy';
   }
 

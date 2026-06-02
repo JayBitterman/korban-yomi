@@ -219,9 +219,12 @@ h1 {
   --line-gap: 24px;
   --row-gap: 14px;
   --tile-min: 168px;
-  --tile-max: 248px;
   --tile-gap: 12px;
+  --tile-padding: 10px;
   --animal-image-size: 116px;
+  --animal-copy-size: 0.92rem;
+  --animal-name-size: 1.12rem;
+  --nesachim-size: 1.02rem;
   /* Categories sit side by side as columns, but each column is sized to its
      content rather than a fixed 1/N share: a column's flex-grow is its tile
      count (--group-weight), so a sparse category stays narrow and a dense one
@@ -233,15 +236,32 @@ h1 {
   gap: var(--board-gap);
 }
 
+.learning-board[data-density='roomy'] {
+  --board-gap: 34px;
+  --group-gap: 18px;
+  --line-gap: 26px;
+  --row-gap: 16px;
+  --tile-min: 300px;
+  --tile-gap: 16px;
+  --tile-padding: 18px;
+  --animal-image-size: 184px;
+  --animal-copy-size: 1.08rem;
+  --animal-name-size: 1.35rem;
+  --nesachim-size: 1.08rem;
+}
+
 .learning-board[data-density='busy'] {
   --board-gap: 26px;
   --group-gap: 14px;
   --line-gap: 20px;
   --row-gap: 12px;
   --tile-min: 140px;
-  --tile-max: 204px;
   --tile-gap: 10px;
+  --tile-padding: 10px;
   --animal-image-size: 92px;
+  --animal-copy-size: 0.88rem;
+  --animal-name-size: 1.06rem;
+  --nesachim-size: 0.96rem;
 }
 
 .learning-board[data-density='packed'] {
@@ -250,9 +270,12 @@ h1 {
   --line-gap: 16px;
   --row-gap: 10px;
   --tile-min: 118px;
-  --tile-max: 168px;
   --tile-gap: 9px;
+  --tile-padding: 9px;
   --animal-image-size: 74px;
+  --animal-copy-size: 0.78rem;
+  --animal-name-size: 0.96rem;
+  --nesachim-size: 0.82rem;
 }
 
 .korban-group {
@@ -289,16 +312,22 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.korban-group h2,
+.excluded-board h2,
+.korban-line h3 {
+  text-align: center;
+}
+
 .animal-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(var(--tile-min), var(--tile-max)));
-  justify-content: center;
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--tile-gap);
   align-items: stretch;
 }
 
 .animal-tile {
   position: relative;
+  flex: 1 1 var(--tile-min);
   min-width: 0;
   display: grid;
   justify-items: center;
@@ -306,7 +335,7 @@ h1 {
   gap: 8px;
   border: 1px solid rgb(243 238 230 / 12%);
   border-radius: 10px;
-  padding: 10px;
+  padding: var(--tile-padding);
   background: rgb(243 238 230 / 5%);
 }
 
@@ -369,7 +398,7 @@ h1 {
   justify-content: center;
   gap: 5px;
   color: rgb(243 238 230 / 78%);
-  font-size: 0.92rem;
+  font-size: var(--animal-copy-size);
   font-weight: 800;
   text-align: center;
 }
@@ -417,7 +446,7 @@ h1 {
 
 .animal-name {
   color: #f3eee6;
-  font-size: 1.12rem;
+  font-size: var(--animal-name-size);
 }
 
 .animal-age {
@@ -435,7 +464,7 @@ h1 {
   display: grid;
   gap: 4px;
   color: rgb(243 238 230 / 82%);
-  font-size: 1.02rem;
+  font-size: var(--nesachim-size);
   font-weight: 800;
 }
 
@@ -461,7 +490,7 @@ h1 {
 .nesach-art img {
   width: var(--nesach-size, 24px);
   height: auto;
-  max-height: 48px;
+  max-height: 70px;
   object-fit: contain;
 }
 
@@ -494,6 +523,10 @@ h1 {
 .animal-grid-excluded {
   --tile-min: 102px;
   --animal-image-size: 54px;
+}
+
+.animal-grid-excluded .animal-tile {
+  flex-grow: 0;
 }
 
 .empty-state {

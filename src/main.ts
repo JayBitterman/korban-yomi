@@ -523,5 +523,5 @@ function boardDensity(totalTiles: number, densestRowTiles: number, totalRows: nu
     return 'busy';
   }
 
-  return totalRows <= 1 ? 'roomy' : 'normal';
+  return totalTiles <= 6 ? 'roomy' : 'normal';
 }

@@ -8,6 +8,8 @@ import {
   type AnimalKey,
   type KorbanAnimalLine,
   type KorbanGroup,
+  type NesachKey,
+  type NesachQuantity,
   calculateKorbanot,
   clampHebrewDay,
   daysInHebrewMonth,
@@ -42,8 +44,16 @@ const ANIMAL_IMAGE_FILES: Record<AnimalKey, string> = {
 const CATTLE_AGE_IMAGE_FILES: Partial<Record<AnimalAgeCategory, string>> = {
   young: 'young-bull.png',
   mature: 'bull.png',
-  calf: 'calf.png',
 };
+
+const NESACH_IMAGE_FILES: Record<NesachKey, string> = {
+  wine: 'wine.png',
+  oil: 'oil.png',
+  solet: 'flour.png',
+};
+
+// Base width (px) for the smallest standard nesach amount; larger amounts scale up.
+const NESACH_BASE_PX = 24;
 
 const GROUPS: Array<{ group: KorbanGroup; title: string }> = [
   { group: 'tamid', title: 'תמיד' },
@@ -53,6 +63,9 @@ const GROUPS: Array<{ group: KorbanGroup; title: string }> = [
 
 let selectedDate = getJerusalemHebrewDate();
 let dateDrawerOpen = false;
+// When true the board tracks the live Jerusalem date and rolls itself over at
+// sunset; any manual date navigation pins a specific day and clears the flag.
+let followToday = true;
 const today = () => getJerusalemHebrewDate();
 
 document.addEventListener('click', (event) => {
@@ -64,6 +77,38 @@ document.addEventListener('click', (event) => {
     dateDrawerOpen = false;
     render();
   }
+});
+
+// Roll the board to the new day when the live Jerusalem date crosses sunset.
+// The Hebrew day begins at sunset, so this can fire in the evening, not at
+// civil midnight. Only re-renders when the date actually changes.
+window.setInterval(() => {
+  if (!followToday) {
+    return;
+  }
+
+  const liveToday = today();
+
+  if (liveToday.abs() !== selectedDate.abs()) {
+    selectedDate = liveToday;
+    render();
+  }
+}, 30_000);
+
+// Re-fit after the webfont swaps in (text metrics shift) and on any resize.
+document.fonts?.ready.then(fitToViewport).catch(() => {});
+
+let fitScheduled = false;
+window.addEventListener('resize', () => {
+  if (fitScheduled) {
+    return;
+  }
+
+  fitScheduled = true;
+  requestAnimationFrame(() => {
+    fitScheduled = false;
+    fitToViewport();
+  });
 });
 
 render();
@@ -113,25 +158,20 @@ function render(): void {
 
   app.innerHTML = `
     <main class="site-shell">
-      <header class="top-line" aria-labelledby="main-title">
-        <div>
-          <p class="date-title">${day.titleDate}</p>
-          <h1 id="main-title">מנין הקרבנות</h1>
-        </div>
-        <div class="total-badge" aria-label="סך הכל קרבנות ציבור">
-          <span class="total-number">${formatNumber(day.total)}</span>
-          <span class="total-label">סך הכל</span>
-        </div>
+      <header class="top-line" aria-label="מנין הקרבנות">
         <div class="date-drawer ${dateDrawerOpen ? 'is-open' : ''}">
-          <button
-            class="date-toggle"
-            type="button"
-            data-action="toggle-date"
-            aria-expanded="${dateDrawerOpen}"
-            aria-controls="date-toolbar"
-          >
-            תאריך
-          </button>
+          <div class="date-head">
+            <p class="date-title">${day.titleDate}</p>
+            <button
+              class="date-toggle"
+              type="button"
+              data-action="toggle-date"
+              aria-expanded="${dateDrawerOpen}"
+              aria-controls="date-toolbar"
+            >
+              תאריך
+            </button>
+          </div>
           <section id="date-toolbar" class="date-toolbar" aria-label="בחירת תאריך עברי" ${dateDrawerOpen ? '' : 'hidden'}>
             <button class="icon-button" type="button" data-action="previous-day" aria-label="היום הקודם" title="היום הקודם">
               <span aria-hidden="true">‹</span>
@@ -154,6 +194,10 @@ function render(): void {
             </button>
           </section>
         </div>
+        <div class="total-badge" aria-label="סך הכל קרבנות ציבור">
+          <span class="total-number">${formatNumber(day.total)}</span>
+          <span class="total-label">סך הכל</span>
+        </div>
       </header>
 
       <section class="learning-board" data-groups="${visibleGroups.length}" data-density="${boardDensity(totalTileCount, densestRowTiles, totalRows)}">
@@ -167,9 +211,13 @@ function render(): void {
   function renderGroup({ group, title, rows }: (typeof visibleGroups)[number]): string {
     const hideSingleMusafRowTitle = group === 'musaf' && rows.length === 1;
     const titleText = groupTitle(group, rows);
+    // Width weight: a column grows in proportion to how many tiles it holds, so a
+    // sparse category (2 tamidim) stays narrow and hands the freed space to a
+    // denser neighbour (musaf) instead of every column claiming an equal share.
+    const groupWeight = Math.max(1, rows.reduce((sum, row) => sum + rowTotal(row), 0));
 
     return `
-      <section class="korban-group" data-group="${group}" data-rows="${rows.length}" ${
+      <section class="korban-group" data-group="${group}" data-rows="${rows.length}" style="--group-weight:${groupWeight}" ${
         titleText ? `aria-labelledby="${group}-title"` : `aria-label="${title}"`
       }>
         ${titleText ? `<h2 id="${group}-title">${titleText}</h2>` : ''}
@@ -185,28 +233,41 @@ function render(): void {
     });
   });
 
+  app.querySelectorAll<HTMLImageElement>('img[data-nesach-image]').forEach((image) => {
+    image.addEventListener('error', () => {
+      image.closest('.nesach-art')?.remove();
+      fitToViewport();
+    });
+    // A loaded libation icon changes the tile's height, so re-fit once it lands.
+    image.addEventListener('load', fitToViewport);
+  });
+
   app.querySelector<HTMLButtonElement>('[data-action="toggle-date"]')?.addEventListener('click', () => {
     dateDrawerOpen = !dateDrawerOpen;
     render();
   });
 
   app.querySelector<HTMLButtonElement>('[data-action="today"]')?.addEventListener('click', () => {
+    followToday = true;
     selectedDate = today();
     render();
   });
 
   app.querySelector<HTMLButtonElement>('[data-action="previous-day"]')?.addEventListener('click', () => {
+    followToday = false;
     selectedDate = shiftHebrewDate(selectedDate, -1);
     render();
   });
 
   app.querySelector<HTMLButtonElement>('[data-action="next-day"]')?.addEventListener('click', () => {
+    followToday = false;
     selectedDate = shiftHebrewDate(selectedDate, 1);
     render();
   });
 
   app.querySelectorAll<HTMLSelectElement>('select[data-field]').forEach((select) => {
     select.addEventListener('change', () => {
+      followToday = false;
       const nextYear = readSelect('year');
       const nextMonth = readSelect('month');
       const nextDay = clampHebrewDay(readSelect('day'), nextMonth, nextYear);
@@ -214,6 +275,8 @@ function render(): void {
       render();
     });
   });
+
+  fitToViewport();
 }
 
 function renderRow(row: KorbanRowView, hideTitle = false): string {
@@ -266,11 +329,13 @@ function renderAnimalTile(animal: KorbanAnimalLine, { excluded = false }: { excl
 
   return `
     <article class="animal-tile ${excluded ? 'is-excluded' : ''}" data-korban-type="${animal.korbanType}" aria-label="${animalAriaLabel(animal, excluded)}">
+      <span class="korban-type">${korbanType}</span>
       ${animalIcon(animal)}
       <div class="animal-copy">
-        <span class="korban-type">${korbanType}</span>
-        <span class="animal-name">${animalDisplayName(animal)}</span>
-        ${ageLabel ? `<span class="animal-age">${ageLabel}</span>` : ''}
+        <span class="animal-identity">
+          <span class="animal-name">${animalDisplayName(animal)}</span>
+          ${ageLabel ? `<span class="animal-age">${ageLabel}</span>` : ''}
+        </span>
         ${excluded ? '<span class="excluded-chip">לא במנין</span>' : ''}
       </div>
       ${excluded ? '' : renderNesachim(animal)}
@@ -287,9 +352,9 @@ function renderNesachim(animal: KorbanAnimalLine): string {
 
   return `
     <div class="nesachim" aria-label="נסכים">
-      <span class="nesach-row">${nesachIcon('wine')}<span>יין ${nesachim.wine}</span></span>
-      <span class="nesach-row">${nesachIcon('oil')}<span>שמן ${nesachim.oil}</span></span>
-      <span class="nesach-row">${nesachIcon('solet')}<span>סולת ${nesachim.solet}</span></span>
+      <span class="nesach-row">${nesachImage('wine', nesachim.wine)}<span>יין ${nesachim.wine.label}</span></span>
+      <span class="nesach-row">${nesachImage('oil', nesachim.oil)}<span>שמן ${nesachim.oil.label}</span></span>
+      <span class="nesach-row">${nesachImage('solet', nesachim.solet)}<span>סולת ${nesachim.solet.label}</span></span>
     </div>
   `;
 }
@@ -306,33 +371,16 @@ function animalIcon(animal: KorbanAnimalLine): string {
   `;
 }
 
-function nesachIcon(type: 'wine' | 'oil' | 'solet'): string {
-  if (type === 'wine') {
-    return `
-      <svg class="nesach-icon" viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M8 3h8l-1 8a3 3 0 0 1-6 0L8 3Z" />
-        <path d="M12 14v5" />
-        <path d="M9 21h6" />
-      </svg>
-    `;
-  }
-
-  if (type === 'oil') {
-    return `
-      <svg class="nesach-icon" viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M12 3c3 4 5 7 5 10a5 5 0 0 1-10 0c0-3 2-6 5-10Z" />
-      </svg>
-    `;
-  }
+function nesachImage(type: NesachKey, quantity: NesachQuantity): string {
+  const fileName = NESACH_IMAGE_FILES[type];
+  // Square-root scaling: the picture grows with the amount but softly, so the
+  // largest offering reads as bigger without dwarfing the smallest.
+  const size = (NESACH_BASE_PX * Math.sqrt(quantity.scale)).toFixed(1);
 
   return `
-    <svg class="nesach-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M5 17c3 3 11 3 14 0" />
-      <path d="M7 17l2-8" />
-      <path d="M12 17V6" />
-      <path d="M17 17l-2-8" />
-      <path d="M8 10c2 1 6 1 8 0" />
-    </svg>
+    <span class="nesach-art" style="--nesach-size:${size}px">
+      <img data-nesach-image src="${publicAsset(`images/${fileName}`)}" alt="" />
+    </span>
   `;
 }
 
@@ -353,11 +401,91 @@ function animalAriaLabel(animal: KorbanAnimalLine, excluded: boolean): string {
   const ageLabel = ANIMAL_AGE_LABELS[animal.ageCategory];
   const agePart = ageLabel ? ` ${ageLabel}` : '';
   const nesachimPart = nesachim
-    ? `, יין ${nesachim.wine}, שמן ${nesachim.oil}, סולת ${nesachim.solet}`
+    ? `, יין ${nesachim.wine.label}, שמן ${nesachim.oil.label}, סולת ${nesachim.solet.label}`
     : '';
   const excludedPart = excluded ? ', לא במנין' : '';
 
   return `${animalDisplayName(animal)}${agePart}, ${KORBAN_TYPE_LABELS[animal.korbanType]}${nesachimPart}${excludedPart}`;
+}
+
+// Scale the whole board down until it fits the viewport height, so a TV (which
+// cannot scroll) shows the entire day at once. Only shrinks — never enlarges
+// past the density-tuned layout — and stays out of the way on narrow/portrait
+// screens where natural scrolling is the right behaviour.
+function fitToViewport(): void {
+  const shell = app.querySelector<HTMLElement>('.site-shell');
+
+  if (!shell) {
+    return;
+  }
+
+  const enableFit = window.innerWidth >= 900 && window.innerWidth >= window.innerHeight;
+  app.classList.toggle('fit-active', enableFit);
+  shell.style.transform = '';
+  shell.style.width = '';
+
+  if (!enableFit) {
+    return;
+  }
+
+  // Measure unscaled (transform was just cleared), then find the narrowest
+  // pre-scaled layout that still fills the screen width after fitting height.
+  const availableWidth = Math.max(320, window.innerWidth - 40);
+  const availableHeight = window.innerHeight;
+  const maxLayoutWidth = Math.min(12000, availableWidth * 4);
+
+  type FitMeasurement = {
+    scale: number;
+    visualHeight: number;
+  };
+
+  const measure = (layoutWidth: number): FitMeasurement => {
+    shell.style.width = `${Math.ceil(layoutWidth)}px`;
+    const naturalHeight = shell.scrollHeight;
+    const scale = Math.min(1, availableWidth / layoutWidth);
+
+    return {
+      scale,
+      visualHeight: naturalHeight * scale,
+    };
+  };
+
+  const naturalFit = measure(availableWidth);
+
+  if (naturalFit.visualHeight <= availableHeight) {
+    shell.style.width = '';
+    return;
+  }
+
+  let low = availableWidth;
+  let high = Math.min(maxLayoutWidth, availableWidth / Math.max(0.1, availableHeight / shell.scrollHeight));
+  let highFit = measure(high);
+
+  while (highFit.visualHeight > availableHeight && high < maxLayoutWidth) {
+    low = high;
+    high = Math.min(maxLayoutWidth, high * 1.35);
+    highFit = measure(high);
+  }
+
+  if (highFit.visualHeight <= availableHeight) {
+    for (let index = 0; index < 10; index += 1) {
+      const mid = (low + high) / 2;
+      const midFit = measure(mid);
+
+      if (midFit.visualHeight <= availableHeight) {
+        high = mid;
+        highFit = midFit;
+      } else {
+        low = mid;
+      }
+    }
+  }
+
+  shell.style.width = `${Math.ceil(high)}px`;
+  const scale = highFit.visualHeight <= availableHeight
+    ? highFit.scale
+    : Math.min(highFit.scale, availableHeight / shell.scrollHeight);
+  shell.style.transform = scale < 1 ? `scale(${scale})` : '';
 }
 
 function readSelect(field: 'day' | 'month' | 'year'): number {

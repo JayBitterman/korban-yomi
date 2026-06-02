@@ -100,19 +100,19 @@ describe('calculateKorbanot', () => {
     const roshChodesh = findRow(calculateKorbanot(date), 'rosh-chodesh-musaf');
 
     expect(resolveNesachim(findAnimal(roshChodesh, (animal) => animal.animal === 'bulls'))).toEqual({
-      solet: '3 עשרונים',
-      oil: '1/2 הין',
-      wine: '1/2 הין',
+      solet: { label: 'שלושה עשרונים', scale: 3 },
+      oil: { label: 'חצי ההין', scale: 2 },
+      wine: { label: 'חצי ההין', scale: 2 },
     });
     expect(resolveNesachim(findAnimal(roshChodesh, (animal) => animal.animal === 'rams'))).toEqual({
-      solet: '2 עשרונים',
-      oil: '1/3 הין',
-      wine: '1/3 הין',
+      solet: { label: 'שני עשרונים', scale: 2 },
+      oil: { label: 'שלישית ההין', scale: 4 / 3 },
+      wine: { label: 'שלישית ההין', scale: 4 / 3 },
     });
     expect(resolveNesachim(findAnimal(roshChodesh, (animal) => animal.animal === 'lambs'))).toEqual({
-      solet: 'עשרון',
-      oil: '1/4 הין',
-      wine: '1/4 הין',
+      solet: { label: 'עשרון', scale: 1 },
+      oil: { label: 'רביעית ההין', scale: 1 },
+      wine: { label: 'רביעית ההין', scale: 1 },
     });
     expect(
       resolveNesachim({
@@ -122,9 +122,9 @@ describe('calculateKorbanot', () => {
         quantity: 1,
       }),
     ).toEqual({
-      solet: 'עשרון',
-      oil: '1/4 הין',
-      wine: '1/4 הין',
+      solet: { label: 'עשרון', scale: 1 },
+      oil: { label: 'רביעית ההין', scale: 1 },
+      wine: { label: 'רביעית ההין', scale: 1 },
     });
   });
 
@@ -135,9 +135,9 @@ describe('calculateKorbanot', () => {
     const omer = findAnimal(findRow(calculateKorbanot(date), 'omer'), (animal) => animal.animal === 'lambs');
 
     expect(resolveNesachim(omer)).toEqual({
-      solet: '2 עשרונים',
-      oil: '1/3 הין',
-      wine: '1/4 הין',
+      solet: { label: 'שני עשרונים', scale: 2 },
+      oil: { label: 'שלישית ההין', scale: 4 / 3 },
+      wine: { label: 'רביעית ההין', scale: 1 },
     });
   });
 

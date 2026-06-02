@@ -6,11 +6,8 @@
 
 שים את התמונות בתיקייה `public/images/` בשמות האלה:
 
-- `beis-hamikdash.jpg` - התמונה הראשית
-- `tamid.jpg` - תמידים
-- `musaf.jpg` - מוספים
-- `special.jpg` - קרבנות מיוחדים
 - `bull.png` - פרים
+- `young-bull.png` - פרים בני בקר
 - `ram.png` - אילים
 - `lamb.png` - כבשים
 - `goat.png` - שעירים

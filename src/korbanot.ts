@@ -1,7 +1,7 @@
 import { HDate, Location, Zmanim, gematriya, months } from '@hebcal/core';
 
 export type AnimalKey = 'bulls' | 'rams' | 'lambs' | 'goats';
-export type AnimalAgeCategory = 'standard' | 'young' | 'mature' | 'calf' | 'yearling';
+export type AnimalAgeCategory = 'standard' | 'young' | 'mature' | 'yearling' | 'two-year';
 export type KorbanGroup = 'tamid' | 'musaf' | 'special';
 export type KorbanType = 'olah' | 'chatas' | 'shelamim' | 'pesach' | 'azazel';
 
@@ -12,10 +12,19 @@ export interface AnimalCounts {
   goats: number;
 }
 
+export type NesachKey = 'solet' | 'oil' | 'wine';
+
+export interface NesachQuantity {
+  /** Display wording, e.g. 'חצי ההין' or 'שלושה עשרונים'. */
+  label: string;
+  /** Relative magnitude for sizing the picture; 1 = smallest standard amount. */
+  scale: number;
+}
+
 export interface NesachimAmounts {
-  solet: string;
-  oil: string;
-  wine: string;
+  solet: NesachQuantity;
+  oil: NesachQuantity;
+  wine: NesachQuantity;
 }
 
 export interface KorbanAnimalLine {
@@ -79,10 +88,20 @@ export const ANIMAL_TILE_LABELS: Record<AnimalKey, string> = {
 
 export const ANIMAL_AGE_LABELS: Record<AnimalAgeCategory, string> = {
   standard: '',
-  young: 'בן בקר',
+  young: 'בן שתיים-שלוש שנים',
   mature: 'בוגר',
-  calf: 'עגל',
   yearling: 'בן שנה',
+  'two-year': 'בן שנתיים',
+};
+
+// The age an animal carries when a line doesn't specify one: a par ben bakar is
+// two-to-three years, an ayil is in its second year, and lambs and goats are all
+// within their first year.
+const NATURAL_AGE: Record<AnimalKey, AnimalAgeCategory> = {
+  bulls: 'young',
+  rams: 'two-year',
+  lambs: 'yearling',
+  goats: 'yearling',
 };
 
 export const KORBAN_TYPE_LABELS: Record<KorbanType, string> = {
@@ -100,33 +119,36 @@ export const EMPTY_COUNTS: AnimalCounts = {
   goats: 0,
 };
 
+// Wine/oil scale is the hin fraction normalised so רביעית (1/4) = 1.
+// Solet scale is simply the number of esronim. Both types share a base of 1
+// at the smallest standard amount, so a single sizing curve fits all pictures.
 export const STANDARD_NESACHIM: Record<AnimalKey, NesachimAmounts> = {
   bulls: {
-    solet: '3 עשרונים',
-    oil: '1/2 הין',
-    wine: '1/2 הין',
+    solet: { label: 'שלושה עשרונים', scale: 3 },
+    oil: { label: 'חצי ההין', scale: 2 },
+    wine: { label: 'חצי ההין', scale: 2 },
   },
   rams: {
-    solet: '2 עשרונים',
-    oil: '1/3 הין',
-    wine: '1/3 הין',
+    solet: { label: 'שני עשרונים', scale: 2 },
+    oil: { label: 'שלישית ההין', scale: 4 / 3 },
+    wine: { label: 'שלישית ההין', scale: 4 / 3 },
   },
   lambs: {
-    solet: 'עשרון',
-    oil: '1/4 הין',
-    wine: '1/4 הין',
+    solet: { label: 'עשרון', scale: 1 },
+    oil: { label: 'רביעית ההין', scale: 1 },
+    wine: { label: 'רביעית ההין', scale: 1 },
   },
   goats: {
-    solet: 'עשרון',
-    oil: '1/4 הין',
-    wine: '1/4 הין',
+    solet: { label: 'עשרון', scale: 1 },
+    oil: { label: 'רביעית ההין', scale: 1 },
+    wine: { label: 'רביעית ההין', scale: 1 },
   },
 };
 
 export const OMER_LAMB_NESACHIM: NesachimAmounts = {
-  solet: '2 עשרונים',
-  oil: '1/3 הין',
-  wine: '1/4 הין',
+  solet: { label: 'שני עשרונים', scale: 2 },
+  oil: { label: 'שלישית ההין', scale: 4 / 3 },
+  wine: { label: 'רביעית ההין', scale: 1 },
 };
 
 export const SOURCE_LINKS: SourceLink[] = [
@@ -503,7 +525,7 @@ function createRow(row: KorbanRowInput): KorbanRow {
 function olah(
   animal: AnimalKey,
   quantity: number,
-  ageCategory: AnimalAgeCategory = 'standard',
+  ageCategory?: AnimalAgeCategory,
   options: Partial<Pick<KorbanAnimalLine, 'label' | 'nesachim'>> = {},
 ): KorbanAnimalLine {
   return line(animal, 'olah', quantity, ageCategory, options);
@@ -512,7 +534,7 @@ function olah(
 function chatas(
   animal: AnimalKey,
   quantity: number,
-  ageCategory: AnimalAgeCategory = 'standard',
+  ageCategory?: AnimalAgeCategory,
   options: Partial<Pick<KorbanAnimalLine, 'label' | 'nesachim'>> = {},
 ): KorbanAnimalLine {
   return line(animal, 'chatas', quantity, ageCategory, { nesachim: null, ...options });
@@ -521,7 +543,7 @@ function chatas(
 function shelamim(
   animal: AnimalKey,
   quantity: number,
-  ageCategory: AnimalAgeCategory = 'standard',
+  ageCategory?: AnimalAgeCategory,
   options: Partial<Pick<KorbanAnimalLine, 'label' | 'nesachim'>> = {},
 ): KorbanAnimalLine {
   return line(animal, 'shelamim', quantity, ageCategory, options);
@@ -531,12 +553,12 @@ function line(
   animal: AnimalKey,
   korbanType: KorbanType,
   quantity: number,
-  ageCategory: AnimalAgeCategory,
+  ageCategory: AnimalAgeCategory | undefined,
   options: Partial<Pick<KorbanAnimalLine, 'label' | 'nesachim'>> = {},
 ): KorbanAnimalLine {
   return {
     animal,
-    ageCategory,
+    ageCategory: ageCategory ?? NATURAL_AGE[animal],
     korbanType,
     quantity,
     ...options,
